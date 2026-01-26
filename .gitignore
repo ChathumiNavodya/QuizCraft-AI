@@ -1,0 +1,11 @@
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Local env + DB
+venv/
+quiz_performance.db
+__pycache__/
+*.pyc
+
+# FAISS index files
+rag_indexes/
