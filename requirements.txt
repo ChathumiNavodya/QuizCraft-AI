@@ -1,11 +1,7 @@
-
----
-
-### ✅ requirements.txt
-```txt
 streamlit
 pandas
 matplotlib
+
 PyPDF2
 python-docx
 striprtf
@@ -13,6 +9,5 @@ odfpy
 python-pptx
 
 langchain-core
-langchain-community
 langchain-google-genai
-faiss-cpu
+google-generativeai
