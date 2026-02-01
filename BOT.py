@@ -34,7 +34,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-SCHEMA_VERSION = "2026-01-30-v2-fixed"
+SCHEMA_VERSION = "2026-01-30-v3-clickable-fixed"
 
 
 # ============================================================
@@ -170,6 +170,7 @@ st.markdown(
       .stButton>button:hover { filter: brightness(1.15); transform: translateY(-2px); }
       .stButton>button:active { transform: translateY(0px); }
 
+      /* Drag & drop container hint */
       [data-testid="stFileUploader"] {
         background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(251,146,60,0.04));
         border-radius: 20px;
@@ -223,9 +224,7 @@ def new_salt() -> str:
 # Gemini Initialization (Fixed - Auto-detect working model)
 # ============================================================
 def initialize_llm():
-    """Initialize Gemini model with auto-detection of available models"""
     api_key = st.secrets.get("GOOGLE_API_KEY", None) or os.getenv("GOOGLE_API_KEY")
-    
     if not api_key:
         st.error("⚠️ Missing GOOGLE_API_KEY")
         st.info("Add GOOGLE_API_KEY to Streamlit Cloud → Settings → Secrets")
@@ -233,8 +232,7 @@ def initialize_llm():
 
     try:
         genai.configure(api_key=api_key)
-        
-        # Try preferred models first
+
         preferred_models = [
             "gemini-2.0-flash-exp",
             "gemini-1.5-flash",
@@ -242,30 +240,28 @@ def initialize_llm():
             "gemini-1.5-pro",
             "gemini-1.5-pro-001",
         ]
-        
+
         for model_name in preferred_models:
             try:
                 model = genai.GenerativeModel(model_name)
-                # Test the model with a simple prompt
                 test_response = model.generate_content("Hello")
                 if test_response:
                     return model
             except Exception:
                 continue
-        
-        # If none of the preferred models work, auto-discover
+
         available_models = []
         for m in genai.list_models():
             if "generateContent" in (getattr(m, "supported_generation_methods", None) or []):
                 available_models.append(m.name)
-        
+
         if available_models:
             model_name = available_models[0].replace("models/", "")
             return genai.GenerativeModel(model_name)
-        
+
         st.error("No compatible Gemini models found for your API key")
         return None
-        
+
     except Exception as e:
         st.error(f"Failed to initialize Gemini: {e}")
         return None
@@ -571,7 +567,6 @@ def extract_notes(file) -> Tuple[str, str]:
                         all_text.append(shape.text)
             return "\n".join(all_text).strip(), ""
 
-        # Default text file
         raw = file.read()
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8", errors="ignore")
@@ -589,7 +584,7 @@ def validate_quiz_json(data):
         return False
     if not isinstance(data["questions"], list):
         return False
-    
+
     for q in data["questions"]:
         if not isinstance(q, dict):
             return False
@@ -603,21 +598,17 @@ def validate_quiz_json(data):
                 return False
         except:
             return False
-    
+
     return True
 
 def _extract_json(text: str) -> str:
-    """Extract JSON from markdown code blocks or plain text"""
     text = (text or "").strip()
-    # Remove markdown code blocks
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    # Find JSON object
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     return match.group(0) if match else text
 
 def generate_quiz_once(llm, notes_text: str, num_questions: int, difficulty: str):
-    """Generate quiz with single attempt"""
     prompt = f"""You are an expert quiz generator. Create {num_questions} multiple-choice questions based ONLY on the provided notes.
 
 Difficulty level: {difficulty}
@@ -634,33 +625,27 @@ Rules:
 NOTES:
 {notes_text[:4000]}
 """
-
     response = llm.generate_content(prompt)
     raw_text = getattr(response, "text", "") or ""
-    
-    # Extract JSON
     json_str = _extract_json(raw_text)
-    
+
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON from model: {e}")
-    
+
     if not validate_quiz_json(data):
         raise ValueError("Model returned invalid quiz structure")
-    
-    # Ensure all fields are correct type
+
     for q in data["questions"]:
         q["answer"] = int(q["answer"])
         if "explanation" not in q:
             q["explanation"] = ""
-    
+
     return data
 
 def generate_quiz_with_retry(llm, notes_text: str, num_questions: int, difficulty: str, max_attempts: int = 3):
-    """Generate quiz with retry logic"""
     last_error = None
-    
     for attempt in range(1, max_attempts + 1):
         try:
             return generate_quiz_once(llm, notes_text, num_questions, difficulty)
@@ -677,29 +662,27 @@ def generate_quiz_with_retry(llm, notes_text: str, num_questions: int, difficult
 # ============================================================
 def plot_progress(df: pd.DataFrame):
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(df["timestamp"], df["percentage"], marker="o", linestyle="-", linewidth=2.5, markersize=8, color='#22d3ee')
-    ax.fill_between(df["timestamp"], df["percentage"], alpha=0.15, color='#22d3ee')
-    ax.set_title("Performance Over Time", fontsize=16, fontweight='bold', pad=20, color='#e8f0ff')
-    ax.set_xlabel("Date", fontsize=12, color='#c8d4f0')
-    ax.set_ylabel("Score (%)", fontsize=12, color='#c8d4f0')
+    ax.plot(df["timestamp"], df["percentage"], marker="o", linestyle="-", linewidth=2.5, markersize=8, color="#22d3ee")
+    ax.fill_between(df["timestamp"], df["percentage"], alpha=0.15, color="#22d3ee")
+    ax.set_title("Performance Over Time", fontsize=16, fontweight="bold", pad=20, color="#e8f0ff")
+    ax.set_xlabel("Date", fontsize=12, color="#c8d4f0")
+    ax.set_ylabel("Score (%)", fontsize=12, color="#c8d4f0")
     ax.set_ylim(0, 105)
-    ax.grid(True, alpha=0.2, linestyle='--', color='#8aa0c8')
-    
-    # Style the plot
-    ax.set_facecolor('#0b1220')
-    fig.patch.set_facecolor('#0b1220')
-    ax.tick_params(colors='#c8d4f0')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_color('#8aa0c8')
-    ax.spines['left'].set_color('#8aa0c8')
+    ax.grid(True, alpha=0.2, linestyle="--", color="#8aa0c8")
 
-    # Format dates
+    ax.set_facecolor("#0b1220")
+    fig.patch.set_facecolor("#0b1220")
+    ax.tick_params(colors="#c8d4f0")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_color("#8aa0c8")
+    ax.spines["left"].set_color("#8aa0c8")
+
     locator = mdates.AutoDateLocator(minticks=3, maxticks=7)
     formatter = mdates.ConciseDateFormatter(locator)
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(formatter)
-    
+
     fig.tight_layout()
     return fig
 
@@ -709,7 +692,10 @@ def plot_progress(df: pd.DataFrame):
 # ============================================================
 def render_hero():
     st.markdown(f'<div class="hero-title">{APP_ICON} {APP_NAME}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-subtitle">Transform your study notes into interactive quizzes powered by AI</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hero-subtitle">Transform your study notes into interactive quizzes powered by AI</div>',
+        unsafe_allow_html=True
+    )
 
 def render_features():
     col1, col2, col3 = st.columns(3)
@@ -743,9 +729,17 @@ def render_features():
 # Main Application
 # ============================================================
 def main():
-    # Initialize session state
-    if "active_tab" not in st.session_state:
-        st.session_state["active_tab"] = "notes"
+    # Session defaults
+    st.session_state.setdefault("active_tab", "notes")
+    st.session_state.setdefault("show_results", False)       # ✅ persist results view
+    st.session_state.setdefault("results_payload", None)     # ✅ persist results payload
+    st.session_state.setdefault("selected_quiz_id", None)
+
+    # ✅ NEW: persist post-generation actions + uploader reset
+    st.session_state.setdefault("show_post_gen_actions", False)
+    st.session_state.setdefault("last_generated_quiz_id", None)
+    st.session_state.setdefault("last_quiz_json", None)
+    st.session_state.setdefault("uploader_key", 0)
 
     # Initialize database and LLM
     conn = init_db(SCHEMA_VERSION)
@@ -765,7 +759,12 @@ def main():
                 st.markdown("#### Sign In")
                 username = st.text_input("Username or Email", key="login_user", placeholder="Enter username or email")
                 show_password = st.checkbox("Show password", key="show_pw_login")
-                password = st.text_input("Password", type="text" if show_password else "password", key="login_pass", placeholder="Enter password")
+                password = st.text_input(
+                    "Password",
+                    type="text" if show_password else "password",
+                    key="login_pass",
+                    placeholder="Enter password"
+                )
 
                 if st.button("🔑 Login", use_container_width=True):
                     ok, msg, uid, uname = login_user(conn, username, password)
@@ -773,7 +772,7 @@ def main():
                         st.session_state["user_id"] = uid
                         st.session_state["username"] = uname
                         st.success(msg)
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -783,8 +782,18 @@ def main():
                 new_username = st.text_input("Username", key="reg_user", placeholder="Choose a username")
                 new_email = st.text_input("Email", key="reg_email", placeholder="your.email@example.com")
                 show_password2 = st.checkbox("Show password", key="show_pw_reg")
-                new_password = st.text_input("Password", type="text" if show_password2 else "password", key="reg_pass", placeholder="Min 6 chars, include number")
-                confirm_password = st.text_input("Confirm Password", type="text" if show_password2 else "password", key="reg_pass2", placeholder="Re-enter password")
+                new_password = st.text_input(
+                    "Password",
+                    type="text" if show_password2 else "password",
+                    key="reg_pass",
+                    placeholder="Min 6 chars, include number"
+                )
+                confirm_password = st.text_input(
+                    "Confirm Password",
+                    type="text" if show_password2 else "password",
+                    key="reg_pass2",
+                    placeholder="Re-enter password"
+                )
 
                 if st.button("✨ Create Account", use_container_width=True):
                     if new_password != confirm_password:
@@ -802,7 +811,7 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-    # Show hero page if not logged in
+    # Hero if not logged in
     if "user_id" not in st.session_state:
         render_hero()
         render_features()
@@ -810,7 +819,6 @@ def main():
         st.info("👈 Please login or create an account to continue")
         return
 
-    # Check if LLM initialized
     if llm is None:
         st.error("⚠️ AI model not initialized. Please check your API key configuration.")
         st.stop()
@@ -823,15 +831,20 @@ def main():
     with st.sidebar:
         st.divider()
         st.markdown("### 📚 Your Modules")
-        
-        new_module = st.text_input("", placeholder="e.g., Biology, Python...", key="new_module_input", label_visibility="collapsed")
+
+        new_module = st.text_input(
+            "",
+            placeholder="e.g., Biology, Python...",
+            key="new_module_input",
+            label_visibility="collapsed"
+        )
         if st.button("➕ Create / Open Module", use_container_width=True):
             if new_module.strip():
                 module_id = get_or_create_module(conn, user_id, new_module.strip())
                 st.session_state["module_id"] = module_id
                 st.session_state["module_name"] = new_module.strip()
                 st.success(f"📂 Opened: {new_module.strip()}")
-                time.sleep(0.3)
+                time.sleep(0.2)
                 st.rerun()
             else:
                 st.warning("Please enter a module name")
@@ -846,7 +859,7 @@ def main():
                     st.session_state["module_name"] = mod_name
                     st.rerun()
 
-    # Check if module is selected
+    # Need module selected
     if "module_id" not in st.session_state:
         render_hero()
         st.info("📚 Create or select a module from the sidebar to get started")
@@ -855,14 +868,16 @@ def main():
     module_id = st.session_state["module_id"]
     module_name = st.session_state.get("module_name", "Unknown Module")
 
-    # Module header
+    # Header
     st.markdown(f'<h2 style="color:#22d3ee; font-weight:800;">📖 {module_name}</h2>', unsafe_allow_html=True)
-    
+
     # Navigation buttons
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("📝 Notes → Quiz", key="nav_notes", use_container_width=True):
             st.session_state["active_tab"] = "notes"
+            st.session_state["show_results"] = False
+            st.session_state["results_payload"] = None
             st.rerun()
     with col2:
         if st.button("✅ Take Quiz", key="nav_take", use_container_width=True):
@@ -872,7 +887,7 @@ def main():
         if st.button("📊 Progress", key="nav_progress", use_container_width=True):
             st.session_state["active_tab"] = "progress"
             st.rerun()
-    
+
     st.divider()
 
     # ============================================================
@@ -881,16 +896,22 @@ def main():
     if st.session_state["active_tab"] == "notes":
         st.markdown('<div class="qc-card">', unsafe_allow_html=True)
         st.markdown("### 📄 Upload Your Study Notes")
-        st.markdown('<p style="color: var(--muted);">Supported: PDF, DOCX, RTF, ODT, PPTX, TXT</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p style="color: var(--muted);">Drag & drop supported • PDF, DOCX, RTF, ODT, PPTX, TXT</p>',
+            unsafe_allow_html=True
+        )
 
         uploaded_file = st.file_uploader(
-            "Choose file",
+            "📎 Drag & drop your file here or click to browse",
             type=["pdf", "docx", "rtf", "odt", "pptx", "txt"],
-            label_visibility="collapsed"
+            help="Supported: PDF, DOCX, RTF, ODT, PPTX, TXT",
+            accept_multiple_files=False,
+            key=f"uploader_{st.session_state['uploader_key']}",
+            label_visibility="visible",
         )
+        st.caption("📁 Tip: You can drag & drop a file into the uploader box.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Quiz settings
         settings_col1, settings_col2 = st.columns(2)
         with settings_col1:
             num_questions = st.number_input("📊 Number of Questions", min_value=1, max_value=50, value=10, step=1)
@@ -911,7 +932,6 @@ def main():
 
             notes_hash = compute_hash(notes_text)
 
-            # Show preview
             st.markdown('<div class="qc-card">', unsafe_allow_html=True)
             st.markdown("#### 📄 Notes Preview")
             preview = notes_text[:1500] + ("..." if len(notes_text) > 1500 else "")
@@ -919,7 +939,6 @@ def main():
             st.caption(f"📏 Total: {len(notes_text):,} characters")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            # Action buttons
             action_col1, action_col2 = st.columns([3, 1])
             with action_col1:
                 generate_btn = st.button("✨ Generate Quiz with AI", use_container_width=True, type="primary")
@@ -927,179 +946,251 @@ def main():
                 clear_btn = st.button("🧹 Clear", use_container_width=True)
 
             if clear_btn:
-                if "selected_quiz_id" in st.session_state:
-                    del st.session_state["selected_quiz_id"]
+                st.session_state["selected_quiz_id"] = None
+                st.session_state["show_results"] = False
+                st.session_state["results_payload"] = None
+
+                # ✅ clear post-generation buttons state
+                st.session_state["show_post_gen_actions"] = False
+                st.session_state["last_generated_quiz_id"] = None
+                st.session_state["last_quiz_json"] = None
+
+                # ✅ reset uploader widget
+                st.session_state["uploader_key"] += 1
+
                 st.success("Cleared")
                 st.rerun()
 
             if generate_btn:
                 progress = st.progress(0)
                 status = st.empty()
-                
+
                 try:
                     status.text("🤖 AI analyzing your notes...")
                     progress.progress(25)
-                    
+
                     quiz_data = generate_quiz_with_retry(llm, notes_text, num_questions, difficulty, max_attempts=3)
                     progress.progress(75)
-                    
+
                     status.text("💾 Saving to database...")
                     quiz_id = save_quiz(conn, user_id, module_id, notes_hash, quiz_data, difficulty)
                     progress.progress(100)
-                    
+
+                    # ✅ persist for navigation + buttons
                     st.session_state["selected_quiz_id"] = quiz_id
+                    st.session_state["show_post_gen_actions"] = True
+                    st.session_state["last_generated_quiz_id"] = quiz_id
+                    st.session_state["last_quiz_json"] = quiz_data
+
                     status.empty()
                     progress.empty()
-                    
+
                     st.success(f"✅ Quiz #{quiz_id} created successfully!")
-                    
-                    # Next action buttons
-                    next_col1, next_col2, next_col3 = st.columns(3)
-                    with next_col1:
-                        if st.button("➡️ Take Quiz Now", use_container_width=True):
-                            st.session_state["active_tab"] = "take"
-                            st.rerun()
-                    with next_col2:
-                        if st.button("📊 View Progress", use_container_width=True):
-                            st.session_state["active_tab"] = "progress"
-                            st.rerun()
-                    with next_col3:
-                        st.download_button(
-                            "⬇️ Download JSON",
-                            data=json.dumps(quiz_data, indent=2),
-                            file_name=f"quiz_{quiz_id}.json",
-                            mime="application/json",
-                            use_container_width=True
-                        )
-                
+                    st.rerun()
+
                 except Exception as e:
                     progress.empty()
                     status.empty()
                     st.error(f"❌ Quiz generation failed: {e}")
                     st.info("💡 Try: shorter notes, fewer questions, or different difficulty")
-        
+
+            # ✅ Persistent post-generation buttons (clickable)
+            if st.session_state.get("show_post_gen_actions") and st.session_state.get("last_generated_quiz_id"):
+                quiz_id = st.session_state["last_generated_quiz_id"]
+                quiz_data = st.session_state.get("last_quiz_json")
+
+                st.divider()
+                b1, b2, b3 = st.columns(3)
+
+                with b1:
+                    if st.button(
+                        "➡️ Take Quiz Now (Recommended)",
+                        key="take_now_after_gen_persist",
+                        use_container_width=True,
+                        type="primary"
+                    ):
+                        st.session_state["active_tab"] = "take"
+                        st.session_state["show_results"] = False
+                        st.session_state["results_payload"] = None
+                        st.session_state["show_post_gen_actions"] = False
+                        st.rerun()
+
+                with b2:
+                    if st.button("📊 Progress", key="progress_after_gen_persist", use_container_width=True):
+                        st.session_state["active_tab"] = "progress"
+                        st.session_state["show_post_gen_actions"] = False
+                        st.rerun()
+
+                with b3:
+                    if quiz_data:
+                        st.download_button(
+                            "⬇️ Download JSON",
+                            data=json.dumps(quiz_data, indent=2),
+                            file_name=f"quiz_{quiz_id}.json",
+                            mime="application/json",
+                            use_container_width=True,
+                            key="download_json_after_gen_persist",
+                        )
+
         else:
             st.info("👆 Upload your study notes to generate a quiz")
 
     # ============================================================
-    # TAB 2: Take Quiz
+    # TAB 2: Take Quiz  (✅ FIXED RESULTS BUTTONS)
     # ============================================================
     elif st.session_state["active_tab"] == "take":
         quiz_list = list_quiz_ids_for_module(conn, user_id, module_id, limit=50)
 
         if not quiz_list:
             st.info("📝 No quizzes available. Generate one from 'Notes → Quiz' tab.")
-        else:
-            # Quiz selector
-            options = [(qid, f"Quiz #{qid} • {ts} • {diff}") for (qid, ts, diff) in quiz_list]
-            default_qid = st.session_state.get("selected_quiz_id", options[0][0])
+            return
 
-            selected_label = st.selectbox(
-                "📋 Select Quiz",
-                options=[label for _, label in options],
-                index=next((i for i, (qid, _) in enumerate(options) if qid == default_qid), 0)
-            )
+        # Quiz selector
+        options = [(qid, f"Quiz #{qid} • {ts} • {diff}") for (qid, ts, diff) in quiz_list]
+        default_qid = st.session_state.get("selected_quiz_id") or options[0][0]
 
-            selected_quiz_id = next(qid for qid, label in options if label == selected_label)
-            st.session_state["selected_quiz_id"] = selected_quiz_id
+        selected_label = st.selectbox(
+            "📋 Select Quiz",
+            options=[label for _, label in options],
+            index=next((i for i, (qid, _) in enumerate(options) if qid == default_qid), 0)
+        )
 
-            # Action buttons
-            top_col1, top_col2 = st.columns(2)
-            with top_col1:
-                if st.button("🔄 Retake (Clear Answers)", use_container_width=True):
-                    quiz_to_clear = load_quiz(conn, selected_quiz_id)
-                    if quiz_to_clear:
-                        for q in quiz_to_clear["questions"]:
-                            key = f"q_{selected_quiz_id}_{q['question_id']}"
-                            if key in st.session_state:
-                                del st.session_state[key]
-                    st.success("✅ Answers cleared")
-                    st.rerun()
-            with top_col2:
-                if st.button("📝 Back to Notes", use_container_width=True):
-                    st.session_state["active_tab"] = "notes"
-                    st.rerun()
+        selected_quiz_id = next(qid for qid, label in options if label == selected_label)
+        st.session_state["selected_quiz_id"] = selected_quiz_id
 
-            # Load and display quiz
-            quiz = load_quiz(conn, selected_quiz_id)
-            if not quiz:
-                st.error("Quiz not found")
-                st.stop()
+        top_col1, top_col2 = st.columns(2)
+        with top_col1:
+            if st.button("🔄 Retake (Clear Answers)", use_container_width=True):
+                quiz_to_clear = load_quiz(conn, selected_quiz_id)
+                if quiz_to_clear:
+                    for q in quiz_to_clear["questions"]:
+                        key = f"q_{selected_quiz_id}_{q['question_id']}"
+                        if key in st.session_state:
+                            del st.session_state[key]
+                st.session_state["show_results"] = False
+                st.session_state["results_payload"] = None
+                st.success("✅ Answers cleared")
+                st.rerun()
+        with top_col2:
+            if st.button("📝 Back to Notes", use_container_width=True):
+                st.session_state["active_tab"] = "notes"
+                st.session_state["show_results"] = False
+                st.session_state["results_payload"] = None
+                st.rerun()
 
-            st.markdown(f"**Quiz ID:** {quiz['quiz_id']} • **Difficulty:** {quiz['difficulty']} • **Created:** {quiz['timestamp']}")
+        quiz = load_quiz(conn, selected_quiz_id)
+        if not quiz:
+            st.error("Quiz not found")
+            st.stop()
+
+        st.markdown(f"**Quiz ID:** {quiz['quiz_id']} • **Difficulty:** {quiz['difficulty']} • **Created:** {quiz['timestamp']}")
+        st.divider()
+
+        # If results are being shown, ensure payload matches current quiz
+        if st.session_state.get("show_results") and st.session_state.get("results_payload"):
+            payload = st.session_state["results_payload"]
+            if payload.get("quiz_id") != selected_quiz_id:
+                st.session_state["show_results"] = False
+                st.session_state["results_payload"] = None
+                st.rerun()
+
+        # --- Quiz form
+        user_choices = {}
+        with st.form(key=f"quiz_form_{selected_quiz_id}"):
+            for idx, question in enumerate(quiz["questions"], 1):
+                st.markdown('<div class="quiz-question">', unsafe_allow_html=True)
+                st.markdown(f"### Question {idx}")
+                st.markdown(f"**{question['question']}**")
+
+                choice = st.radio(
+                    "Your answer:",
+                    options=[0, 1, 2, 3],
+                    format_func=lambda x: question["options"][x],
+                    key=f"q_{selected_quiz_id}_{question['question_id']}",
+                    index=None,
+                    label_visibility="collapsed"
+                )
+                user_choices[question["question_id"]] = choice
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            st.divider()
+            submitted = st.form_submit_button("✅ Submit Quiz", use_container_width=True, type="primary")
+
+        # ✅ Process submission (SAVE → RERUN)
+        if submitted:
+            missing = [qid for qid, ans in user_choices.items() if ans is None]
+            if missing:
+                st.error(f"⚠️ Please answer all questions. Missing: {len(missing)}")
+            else:
+                score, total, percentage = save_user_answers_and_performance(conn, user_id, module_id, quiz, user_choices)
+
+                st.session_state["show_results"] = True
+                st.session_state["results_payload"] = {
+                    "quiz_id": quiz["quiz_id"],
+                    "difficulty": quiz["difficulty"],
+                    "timestamp": quiz["timestamp"],
+                    "score": score,
+                    "total": total,
+                    "percentage": percentage,
+                    "quiz": quiz,
+                    "user_choices": user_choices
+                }
+                st.rerun()
+
+        # ✅ Results screen (PERSISTENT)
+        if st.session_state.get("show_results") and st.session_state.get("results_payload"):
+            payload = st.session_state["results_payload"]
+            percentage = payload["percentage"]
+            score = payload["score"]
+            total = payload["total"]
+            quiz_saved = payload["quiz"]
+            choices_saved = payload["user_choices"]
+
+            if percentage >= 90:
+                emoji, message = "🏆", "Outstanding!"
+            elif percentage >= 75:
+                emoji, message = "🎯", "Great job!"
+            elif percentage >= 60:
+                emoji, message = "👍", "Good effort!"
+            else:
+                emoji, message = "💪", "Keep practicing!"
+
+            st.success(f"{emoji} {message} Your score: **{score}/{total}** ({percentage:.1f}%)")
             st.divider()
 
-            # Quiz form
-            user_choices = {}
-            with st.form(key=f"quiz_form_{selected_quiz_id}"):
-                for idx, question in enumerate(quiz["questions"], 1):
-                    st.markdown('<div class="quiz-question">', unsafe_allow_html=True)
-                    st.markdown(f"### Question {idx}")
-                    st.markdown(f"**{question['question']}**")
-                    
-                    choice = st.radio(
-                        "Your answer:",
-                        options=[0, 1, 2, 3],
-                        format_func=lambda x: question["options"][x],
-                        key=f"q_{selected_quiz_id}_{question['question_id']}",
-                        index=None,
-                        label_visibility="collapsed"
-                    )
-                    user_choices[question["question_id"]] = choice
-                    st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("### 📋 Review Your Answers")
+            for idx, question in enumerate(quiz_saved["questions"], 1):
+                chosen = int(choices_saved[question["question_id"]])
+                correct = int(question["answer"])
 
-                st.divider()
-                submitted = st.form_submit_button("✅ Submit Quiz", use_container_width=True, type="primary")
-
-            # Process submission
-            if submitted:
-                missing = [qid for qid, ans in user_choices.items() if ans is None]
-                
-                if missing:
-                    st.error(f"⚠️ Please answer all questions. Missing: {len(missing)}")
+                if chosen == correct:
+                    st.success(f"**Q{idx}:** ✅ Correct - {question['options'][chosen]}")
                 else:
-                    score, total, percentage = save_user_answers_and_performance(conn, user_id, module_id, quiz, user_choices)
+                    st.error(f"**Q{idx}:** ❌ Incorrect")
+                    st.markdown(f"Your answer: **{question['options'][chosen]}**")
+                    st.markdown(f"Correct answer: **{question['options'][correct]}**")
 
-                    # Show result
-                    if percentage >= 90:
-                        emoji, message = "🏆", "Outstanding!"
-                    elif percentage >= 75:
-                        emoji, message = "🎯", "Great job!"
-                    elif percentage >= 60:
-                        emoji, message = "👍", "Good effort!"
-                    else:
-                        emoji, message = "💪", "Keep practicing!"
+                if question.get("explanation"):
+                    with st.expander("💡 Explanation"):
+                        st.write(question["explanation"])
 
-                    st.success(f"{emoji} {message} Your score: **{score}/{total}** ({percentage:.1f}%)")
-                    st.divider()
-
-                    # Review answers
-                    st.markdown("### 📋 Review Your Answers")
-                    for idx, question in enumerate(quiz["questions"], 1):
-                        chosen = int(user_choices[question["question_id"]])
-                        correct = int(question["answer"])
-
-                        if chosen == correct:
-                            st.success(f"**Q{idx}:** ✅ Correct - {question['options'][chosen]}")
-                        else:
-                            st.error(f"**Q{idx}:** ❌ Incorrect")
-                            st.markdown(f"Your answer: **{question['options'][chosen]}**")
-                            st.markdown(f"Correct answer: **{question['options'][correct]}**")
-
-                        if question.get("explanation"):
-                            with st.expander("💡 Explanation"):
-                                st.write(question["explanation"])
-
-                    # Next actions
-                    result_col1, result_col2 = st.columns(2)
-                    with result_col1:
-                        if st.button("📊 View Progress", key="view_prog", use_container_width=True):
-                            st.session_state["active_tab"] = "progress"
-                            st.rerun()
-                    with result_col2:
-                        if st.button("📝 New Quiz", key="new_quiz", use_container_width=True):
-                            st.session_state["active_tab"] = "notes"
-                            st.rerun()
+            # Action buttons always clickable
+            c1, c2, c3 = st.columns([1, 1, 1])
+            with c1:
+                if st.button("📊 View Progress", key="btn_progress_after_submit", use_container_width=True):
+                    st.session_state["active_tab"] = "progress"
+                    st.rerun()
+            with c2:
+                if st.button("📝 New Quiz", key="btn_newquiz_after_submit", use_container_width=True):
+                    st.session_state["active_tab"] = "notes"
+                    st.session_state["show_results"] = False
+                    st.session_state["results_payload"] = None
+                    st.rerun()
+            with c3:
+                if st.button("✅ Back to Quiz List", key="btn_back_quiz_list", use_container_width=True):
+                    st.session_state["show_results"] = False
+                    st.session_state["results_payload"] = None
+                    st.rerun()
 
     # ============================================================
     # TAB 3: Progress Analytics
@@ -1110,7 +1201,6 @@ def main():
         if performance_df.empty:
             st.info("📊 No performance data yet. Complete a quiz to see your progress!")
         else:
-            # Stats cards
             stat_col1, stat_col2, stat_col3 = st.columns(3)
             with stat_col1:
                 st.markdown('<div class="qc-card">', unsafe_allow_html=True)
@@ -1127,14 +1217,12 @@ def main():
 
             st.divider()
 
-            # Performance chart
             st.markdown("### 📈 Performance Trend")
             fig = plot_progress(performance_df)
             st.pyplot(fig, use_container_width=True)
 
             st.divider()
 
-            # Detailed history
             st.markdown("### 📋 Quiz History")
             display_df = performance_df.copy()
             display_df["timestamp"] = display_df["timestamp"].dt.strftime("%Y-%m-%d %H:%M")
